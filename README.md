@@ -28,7 +28,7 @@ after it, and both sides are kept informed by email and Google Calendar.
 | Email | Nodemailer (console transport in dev) | Any SMTP provider |
 | Jobs | DB-backed outbox + polling workers | No Redis — free tiers have none |
 | Calendar | Google Calendar API, OAuth 2.0 | Required by the brief |
-| Frontend | React + Vite | ~200 kB, no UI framework |
+| Frontend | React | Component-based UI for the four portals |
 
 ---
 
