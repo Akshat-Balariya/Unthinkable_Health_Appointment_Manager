@@ -46,19 +46,28 @@ Create the database and edit `DATABASE_URL` in `server/.env`:
 createdb -U postgres hcam
 ```
 
-Then migrate, seed and run:
+Then migrate, seed and start the API:
 
 ```bash
 cd server && npx prisma migrate deploy && npm run db:seed && npm run dev
 ```
 
-In a second terminal:
+**The app needs two processes.** In a second terminal, start the frontend:
 
 ```bash
 cd client && npm install && cp .env.example .env && npm run dev
 ```
 
-App at <http://localhost:5173>, API at <http://localhost:4000>.
+| | |
+|---|---|
+| App (what you open) | <http://localhost:5173> |
+| API | <http://localhost:4000> |
+
+Both must be running. `localhost:5173` refusing to connect means the client
+terminal is not running; the API alone does not serve the UI.
+
+Migrations and the seed only need running once — the seed is idempotent, so
+re-running it is safe.
 
 Background jobs run in-process by default (`WORKER_ENABLED=true`). To run them
 separately: `cd server && npm run worker`.

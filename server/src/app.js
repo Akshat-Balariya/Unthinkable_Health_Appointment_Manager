@@ -24,9 +24,32 @@ export function createApp() {
   app.set('trust proxy', 1); // correct client IPs behind Render/Railway proxies
 
   app.use(helmet());
+
+  // CLIENT_BASE_URL is the canonical origin. In development also accept the
+  // loopback aliases of the same port: a browser at http://127.0.0.1:5173 sends
+  // that as its Origin, and a fixed allow-list value would not match it - which
+  // surfaces to the user as an unhelpful "Failed to fetch" rather than a CORS
+  // message. Production stays pinned to the single configured origin.
+  const allowedOrigins = new Set([env.CLIENT_BASE_URL]);
+  if (!isProd) {
+    try {
+      const { port } = new URL(env.CLIENT_BASE_URL);
+      for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+        allowedOrigins.add(`http://${host}${port ? `:${port}` : ''}`);
+      }
+    } catch {
+      /* CLIENT_BASE_URL is validated as a URL at boot; ignore defensively */
+    }
+  }
+
   app.use(
     cors({
-      origin: env.CLIENT_BASE_URL,
+      origin(origin, callback) {
+        // Requests without an Origin (curl, server-to-server, health checks)
+        // are not subject to the browser's same-origin policy.
+        if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+        return callback(null, false);
+      },
       credentials: true,
     })
   );

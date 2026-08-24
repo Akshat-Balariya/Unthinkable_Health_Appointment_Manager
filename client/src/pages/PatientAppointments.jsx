@@ -65,6 +65,12 @@ function Summary({ appointmentId }) {
           <ul className="tight">{s.warningSigns.map((w, i) => <li key={i}>{w}</li>)}</ul>
         </>
       )}
+
+      <p className="ai-note">
+        <strong>Written by AI from your doctor&rsquo;s notes.</strong> AI can make
+        mistakes. If anything here looks wrong, or differs from what your doctor
+        told you, follow your doctor&rsquo;s advice and contact the clinic to check.
+      </p>
     </div>
   );
 }

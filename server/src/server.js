@@ -48,6 +48,22 @@ async function start() {
     log.info(`listening on http://localhost:${env.PORT}`, { env: env.NODE_ENV });
   });
 
+  // A port clash is the most common local startup failure; an unhandled 'error'
+  // event would otherwise surface as a bare EADDRINUSE stack trace.
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      log.error(
+        `Port ${env.PORT} is already in use - another server is probably still running.`
+      );
+      log.error(`  Windows: netstat -ano | findstr :${env.PORT}   then  taskkill /PID <pid> /F`);
+      log.error(`  macOS/Linux: lsof -ti:${env.PORT} | xargs kill -9`);
+      log.error('  Or set a different PORT in server/.env');
+    } else {
+      log.error('server failed to start', { code: err.code, message: err.message });
+    }
+    process.exit(1);
+  });
+
   const shutdown = async (signal) => {
     log.info(`${signal} received, shutting down`);
     stopSweeper();
