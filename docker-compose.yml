@@ -1,0 +1,24 @@
+# Local development dependencies.
+# The app itself runs on the host (npm run dev) - this only provides Postgres
+# on port 5433 so it cannot collide with an existing local server on 5432.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hcam-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hcam
+      POSTGRES_PASSWORD: hcam_dev_password
+      POSTGRES_DB: hcam
+    ports:
+      - "5433:5432"
+    volumes:
+      - hcam_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hcam -d hcam"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hcam_pgdata:

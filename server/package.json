@@ -1,0 +1,54 @@
+{
+  "name": "hcam-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Healthcare Appointment & Follow-up Manager - backend API",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "worker": "node src/jobs/worker.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "db:reset": "prisma migrate reset --force",
+    "lint": "eslint src",
+    "db:setup": "prisma migrate deploy && node prisma/seed.js",
+    "verify:slots": "node scripts/verify-slot-guard.js",
+    "smoke:part2": "node scripts/smoke-part2.js",
+    "verify:leave": "node scripts/verify-leave-cascade.js",
+    "verify:booking": "node scripts/verify-booking.js",
+    "verify:holds": "node scripts/verify-hold-expiry.js",
+    "verify:all": "node scripts/verify-slot-guard.js && node scripts/verify-leave-cascade.js && node scripts/verify-booking.js && node scripts/verify-hold-expiry.js && node scripts/verify-summaries.js && node scripts/verify-notifications.js && node scripts/run-degradation.js",
+    "verify:summaries": "node scripts/verify-summaries.js",
+    "verify:degradation": "node scripts/run-degradation.js",
+    "verify:notifications": "node scripts/verify-notifications.js"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "nodemailer": "^6.9.16",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.1.0"
+  }
+}
