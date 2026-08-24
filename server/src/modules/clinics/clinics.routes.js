@@ -37,7 +37,7 @@ const updateClinicSchema = z
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60_000,
-  max: 5,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

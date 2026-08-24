@@ -132,6 +132,15 @@ Test 3: cancelling frees the slot for rebooking       PASS
 
 ## API — implemented so far
 
+### Clinics (`/api/clinics`)
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| POST | `/register` | — | Self-service clinic signup (clinic + first admin) |
+| GET | `/` | — | Public clinic directory |
+| GET | `/me` | clinic admin | Own clinic profile + doctor count |
+| PATCH | `/me` | clinic admin | Update clinic details |
+
 ### Auth (`/api/auth`)
 
 | Method | Path | Auth | Purpose |
@@ -145,7 +154,7 @@ Test 3: cancelling frees the slot for rebooking       PASS
 | PATCH | `/me` | any | Update name / phone / timezone |
 | POST | `/change-password` | any | Revokes all sessions on success |
 
-### Admin (`/api/admin`) — ADMIN only
+### Doctor management (`/api/admin`) — CLINIC_ADMIN or ADMIN
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -197,6 +206,34 @@ label with no clinician to interpret it does harm rather than good.
 
 Inactive doctors are invisible here, and licence numbers and doctor email
 addresses are never exposed to patients.
+
+---
+
+## Multi-tenancy
+
+Clinics register themselves, then add and manage their own doctors.
+
+| Role | Scope |
+|---|---|
+| `CLINIC_ADMIN` | One clinic. Sees and edits only its own doctors. |
+| `ADMIN` | Platform-wide. Sees every clinic. |
+| `PATIENT` | Searches doctors across **all** clinics; can filter by clinic. |
+
+The tenancy scope comes from the **verified JWT**, never the request body, so a
+clinic cannot widen its own reach by sending a different id. Cross-tenant access
+returns **404, not 403** — a 403 would confirm the id exists and let one clinic
+enumerate another's staff.
+
+`POST /api/clinics/register` hardcodes the role to `CLINIC_ADMIN`; a `role` field
+in the body is ignored, so the endpoint cannot mint a platform admin.
+
+```bash
+cd server && npm run verify:clinics   # 33 checks
+```
+
+Fifteen of those checks are cross-tenant attacks — reading, editing, rewriting
+schedules, deactivating and marking leave on another clinic's doctor — all of
+which must 404, with the target verified afterwards to be untouched.
 
 ---
 

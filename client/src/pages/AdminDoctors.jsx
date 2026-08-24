@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { Alert, Field } from '../ui.jsx';
 import LeavePanel from './LeavePanel.jsx';
 
@@ -10,6 +11,8 @@ const blank = {
 };
 
 export default function AdminDoctors() {
+  const { user } = useAuth();
+  const [clinic, setClinic] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [form, setForm] = useState(blank);
   const [creating, setCreating] = useState(false);
@@ -17,11 +20,20 @@ export default function AdminDoctors() {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
 
-  const load = () =>
+  // Reloads the doctor list and, for clinic admins, the clinic header - the
+  // doctor count lives on the clinic record and would otherwise go stale after
+  // adding or deactivating someone.
+  const load = () => {
     api('/api/admin/doctors?limit=50')
       .then((r) => setDoctors(r.data))
       .catch((e) => setError(e.message));
+    if (user.role === 'CLINIC_ADMIN') {
+      api('/api/clinics/me').then(setClinic).catch(() => {});
+    }
+  };
 
+  // Platform admins are not tied to a clinic, so the clinic call inside load()
+  // is skipped for them.
   useEffect(() => { load(); }, []);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -50,7 +62,12 @@ export default function AdminDoctors() {
 
   return (
     <>
-      <h1>Doctors</h1>
+      <h1>{clinic ? clinic.name : 'Doctors'}</h1>
+      <p className="muted">
+        {clinic
+          ? `${[clinic.addressLine, clinic.city].filter(Boolean).join(', ') || 'Your clinic'} · ${clinic.doctorCount} doctor(s)`
+          : 'All doctors across every clinic.'}
+      </p>
       <Alert>{error}</Alert>
       <Alert kind="ok">{ok}</Alert>
 

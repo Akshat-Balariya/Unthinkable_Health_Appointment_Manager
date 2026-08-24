@@ -28,7 +28,9 @@
     "verify:all": "node scripts/verify-slot-guard.js && node scripts/verify-leave-cascade.js && node scripts/verify-booking.js && node scripts/verify-hold-expiry.js && node scripts/verify-summaries.js && node scripts/verify-notifications.js && node scripts/run-degradation.js",
     "verify:summaries": "node scripts/verify-summaries.js",
     "verify:degradation": "node scripts/run-degradation.js",
-    "verify:notifications": "node scripts/verify-notifications.js"
+    "verify:notifications": "node scripts/verify-notifications.js",
+    "verify:clinics": "node scripts/verify-clinic-isolation.js",
+    "db:clean": "node scripts/clean-test-data.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

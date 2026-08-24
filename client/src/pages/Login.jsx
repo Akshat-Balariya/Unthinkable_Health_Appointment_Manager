@@ -41,6 +41,8 @@ export default function Login() {
         </form>
         <p className="muted" style={{ marginTop: 14 }}>
           New patient? <Link to="/register">Create an account</Link>
+          <br />
+          Running a clinic? <Link to="/register-clinic">Register your clinic</Link>
         </p>
       </div>
     </div>

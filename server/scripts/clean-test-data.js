@@ -9,8 +9,11 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const KEEP_CLINIC_SLUGS = new Set(['sunrise-family-clinic']);
+
 const KEEP = new Set([
   'admin@clinic.test',
+  'clinic@sunrise.test',
   'dr.mehta@clinic.test',
   'dr.rao@clinic.test',
   'dr.fernandes@clinic.test',
@@ -57,6 +60,13 @@ async function main() {
     },
   });
 
+  // Clinics created by the isolation suite. Doctors and admins cascade to
+  // SetNull, so the clinic row itself must be removed explicitly.
+  const clinics = await prisma.clinic.deleteMany({
+    where: { slug: { notIn: [...KEEP_CLINIC_SLUGS] } },
+  });
+  console.log(`  deleted clinics      : ${clinics.count}`);
+
   const [users, doctors, appts, pending, outbox] = await Promise.all([
     prisma.user.count(),
     prisma.doctorProfile.count(),
@@ -73,6 +83,7 @@ async function main() {
   console.log(`  remaining appointments: ${appts}`);
   console.log(`  pending summaries    : ${pending}`);
   console.log(`  queued notifications : ${outbox}`);
+  console.log(`  remaining clinics    : ${await prisma.clinic.count()}`);
 }
 
 main()

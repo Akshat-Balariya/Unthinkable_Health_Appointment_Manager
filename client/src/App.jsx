@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
+import RegisterClinic from './pages/RegisterClinic.jsx';
 import PatientBook from './pages/PatientBook.jsx';
 import PatientAppointments from './pages/PatientAppointments.jsx';
 import DoctorAppointments from './pages/DoctorAppointments.jsx';
@@ -26,8 +27,8 @@ function Nav() {
         {user.role === 'DOCTOR' && (
           <NavLink to="/schedule" className={link}>My schedule</NavLink>
         )}
-        {user.role === 'ADMIN' && (
-          <NavLink to="/admin/doctors" className={link}>Doctors</NavLink>
+        {(user.role === 'ADMIN' || user.role === 'CLINIC_ADMIN') && (
+          <NavLink to="/clinic/doctors" className={link}>Doctors</NavLink>
         )}
         <NavLink to="/settings" className={link}>Settings</NavLink>
         <span className="muted">{user.fullName}</span>
@@ -40,7 +41,11 @@ function Nav() {
 }
 
 const homeFor = (role) =>
-  role === 'DOCTOR' ? '/schedule' : role === 'ADMIN' ? '/admin/doctors' : '/book';
+  role === 'DOCTOR'
+    ? '/schedule'
+    : role === 'ADMIN' || role === 'CLINIC_ADMIN'
+      ? '/clinic/doctors'
+      : '/book';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -51,6 +56,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/register" element={<Register />} />
+        <Route path="/register-clinic" element={<RegisterClinic />} />
         <Route path="*" element={<Login />} />
       </Routes>
     );
@@ -64,6 +70,7 @@ export default function App() {
           <Route path="/book" element={<PatientBook />} />
           <Route path="/appointments" element={<PatientAppointments />} />
           <Route path="/schedule" element={<DoctorAppointments />} />
+          <Route path="/clinic/doctors" element={<AdminDoctors />} />
           <Route path="/admin/doctors" element={<AdminDoctors />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/calendar/connected" element={<Settings />} />

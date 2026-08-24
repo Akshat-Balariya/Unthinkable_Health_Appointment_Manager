@@ -33,6 +33,7 @@ function shapeDoctor(d) {
   return {
     id: d.id,
     userId: d.userId,
+    clinicId: d.clinicId,
     email: d.user.email,
     fullName: d.user.fullName,
     phone: d.user.phone,

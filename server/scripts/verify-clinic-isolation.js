@@ -73,8 +73,9 @@ async function main() {
 
   const dupe = await api('POST', '/api/clinics/register', {
     body: {
-      name: 'Duplicate', clinicEmail: `alpha.${stamp}@clinic.test`,
-      adminName: 'X', adminEmail: `x.${stamp}@clinic.test`, password: 'Passw0rdTest',
+      name: 'Duplicate Clinic', clinicEmail: `alpha.${stamp}@clinic.test`,
+      adminName: 'Duplicate Admin', adminEmail: `x.${stamp}@clinic.test`,
+      password: 'Passw0rdTest',
     },
   });
   check('duplicate clinic email -> 409', dupe.status === 409, `got ${dupe.status}`);
@@ -82,8 +83,8 @@ async function main() {
   // A clinic cannot promote itself by sending a role.
   const escalate = await api('POST', '/api/clinics/register', {
     body: {
-      name: 'Sneaky', clinicEmail: `sneaky.${stamp}@clinic.test`,
-      adminName: 'S', adminEmail: `sneaky.admin.${stamp}@clinic.test`,
+      name: `Sneaky Clinic ${stamp}`, clinicEmail: `sneaky.${stamp}@clinic.test`,
+      adminName: 'Sneaky Admin', adminEmail: `sneaky.admin.${stamp}@clinic.test`,
       password: 'Passw0rdTest', role: 'ADMIN',
     },
   });

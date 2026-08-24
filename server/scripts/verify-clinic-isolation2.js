@@ -100,8 +100,15 @@ export async function runIsolation({ stamp, tokenA, tokenB, docA, docB, api, che
     (search.body?.data ?? []).every((d) => d.clinic?.name),
     JSON.stringify(search.body?.data?.[0]?.clinic));
 
-  const filtered = await api(`GET`, `/api/doctors?clinicId=${docA.clinicId ?? ''}`, { token: pToken });
+  const clinicAId = (search.body?.data ?? []).find((d) => d.id === docA.id)?.clinic?.id;
+  const filtered = await api('GET', `/api/doctors?clinicId=${clinicAId}`, { token: pToken });
+  const filteredIds = (filtered.body?.data ?? []).map((d) => d.id);
   check('patient can filter by clinic', filtered.status === 200, `got ${filtered.status}`);
+  check(
+    'clinic filter returns only that clinic',
+    filteredIds.includes(docA.id) && !filteredIds.includes(docB.id),
+    `returned ${filteredIds.length}`
+  );
 
   // --- clinic profile -------------------------------------------------------
   const me = await api('GET', '/api/clinics/me', { token: tokenA });
