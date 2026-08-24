@@ -1,12 +1,19 @@
 # Healthcare Appointment & Follow-up Manager
 
-Appointment platform for a clinic with three portals (patient / doctor / admin),
-AI-generated pre-visit and post-visit summaries, email notifications, and Google
-Calendar sync.
+Appointment platform for clinics, with separate portals for **patients, doctors,
+clinic admins and platform admins**. Patients book with a symptom form, doctors
+get an AI triage summary before the visit, patients get a plain-language summary
+after it, and both sides are kept informed by email and Google Calendar.
 
-> **Build status — Parts 1–6 of 8 complete.** Backend feature-complete; frontend (Part 7) and docs/deploy (Part 8) remain.
-> Foundation: database schema, migrations, seed data, config, error handling,
-> health endpoints. Remaining parts listed under [Roadmap](#roadmap).
+## Contents
+
+| Document | Covers |
+|---|---|
+| [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) | **Design write-up** — double-booking, slot holds, leave cascade, notification reliability |
+| [docs/API.md](docs/API.md) | Full endpoint reference |
+| [docs/SCHEMA.md](docs/SCHEMA.md) | Database schema and indexes |
+| [docs/LLM.md](docs/LLM.md) | Prompts, provider adapter, failure handling |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Hosting and Google Calendar setup |
 
 ---
 
@@ -14,324 +21,131 @@ Calendar sync.
 
 | Layer | Choice | Why |
 |---|---|---|
-| API | Node.js 20+ / Express | Matches the Nodemailer + free-tier hosting path |
-| ORM | Prisma + PostgreSQL | Declarative schema doubles as documentation; real migrations |
-| Auth | JWT access + refresh, role-based | Three distinct portals |
-| LLM | Provider-agnostic adapter — **Gemini** (`gemini-3.6-flash`), Groq, OpenRouter, mock | Free tiers; swap with one env var |
-| Email | Nodemailer (console transport in dev) | Works with any SMTP provider |
-| Jobs | DB-backed outbox + polling worker | No Redis, so free hosting tiers work |
-| Calendar | Google Calendar API, OAuth 2.0 | Required by spec |
-| Frontend | React + Vite | — |
+| API | Node 20+ / Express | Matches Nodemailer + free-tier hosting |
+| Database | PostgreSQL + Prisma | Declarative schema; real migrations |
+| Auth | JWT access + rotating refresh, RBAC | Four distinct portals |
+| LLM | Gemini / Groq / OpenRouter / mock | Free tiers; one env var to swap |
+| Email | Nodemailer (console transport in dev) | Any SMTP provider |
+| Jobs | DB-backed outbox + polling workers | No Redis — free tiers have none |
+| Calendar | Google Calendar API, OAuth 2.0 | Required by the brief |
+| Frontend | React + Vite | ~200 kB, no UI framework |
 
 ---
 
-## Prerequisites
+## Quick start
 
-- Node.js 20 or newer
-- PostgreSQL 14+ (either Docker, or an existing local server)
-
----
-
-## Setup
+Requires Node 20+ and PostgreSQL 14+.
 
 ```bash
-cd server
-npm install
-cp .env.example .env
+cd server && npm install && cp .env.example .env
 ```
 
-### Database
-
-The repo ships a `docker-compose.yml` that runs Postgres on **port 5433**, so it
-will not collide with an existing local server on 5432:
+Create the database and edit `DATABASE_URL` in `server/.env`:
 
 ```bash
-docker compose up -d
+createdb -U postgres hcam
 ```
 
-If you would rather use an existing PostgreSQL server, create a database and
-point `DATABASE_URL` in `server/.env` at it instead.
-
-Then apply migrations and load sample data:
+Then migrate, seed and run:
 
 ```bash
-cd server && npx prisma migrate deploy && npm run db:seed
+cd server && npx prisma migrate deploy && npm run db:seed && npm run dev
 ```
 
-### Run
+In a second terminal:
 
 ```bash
-cd server && npm run dev
+cd client && npm install && cp .env.example .env && npm run dev
 ```
 
-- `GET /health` — liveness
-- `GET /health/ready` — readiness, reports which subsystems are degraded
+App at <http://localhost:5173>, API at <http://localhost:4000>.
 
----
+Background jobs run in-process by default (`WORKER_ENABLED=true`). To run them
+separately: `cd server && npm run worker`.
 
-## Seeded accounts
+### Seeded accounts
 
-All seeded users share the password `Password123!`.
+All use the password `Password123!`.
 
 | Role | Email |
 |---|---|
-| Admin | `admin@clinic.test` |
+| Platform admin | `admin@clinic.test` |
+| Clinic admin | `clinic@sunrise.test` |
 | Doctor | `dr.mehta@clinic.test` (General Medicine, 30-min slots) |
-| Doctor | `dr.rao@clinic.test` (Cardiology, 45-min slots + 15-min buffer) |
-| Doctor | `dr.fernandes@clinic.test` (Dermatology, 20-min slots) |
-| Doctor | `dr.khan@clinic.test` (Pediatrics, 15-min slots) |
-| Patient | `patient.one@example.test` |
-| Patient | `patient.two@example.test` |
-| Patient | `patient.three@example.test` |
+| Doctor | `dr.rao@clinic.test` (Cardiology, 45-min + 15-min buffer) |
+| Doctor | `dr.fernandes@clinic.test` (Dermatology, 20-min) |
+| Doctor | `dr.khan@clinic.test` (Pediatrics, 15-min) |
+| Patient | `patient.one@example.test` … `patient.three@example.test` |
+
+`npm run db:clean` removes accounts left behind by the test suites.
 
 ---
 
-## Database schema
+## Configuration
 
-17 models. The ones carrying the load:
+Full list with comments in [`server/.env.example`](server/.env.example). The ones
+that matter:
 
-- **`appointments`** — the concurrency-critical table. Guarded by a *partial
-  unique index* on `(doctorId, slotStart) WHERE status IN ('HELD','CONFIRMED')`
-  plus a `btree_gist` **EXCLUDE** constraint that rejects any overlapping time
-  range for the same doctor. Both live in
-  `prisma/migrations/20250101000001_active_slot_guard/migration.sql`. A plain
-  unique constraint would have been wrong — it would permanently burn a slot
-  after its first cancellation.
-- **`notification_outbox`** — transactional outbox. Rows are written in the same
-  transaction as the business change and drained by a worker with exponential
-  backoff, a `dedupeKey` for idempotency, and a `DEAD` terminal state.
-- **`pre_visit_summaries` / `post_visit_summaries`** — LLM output with an
-  explicit `PENDING → READY / FAILED` lifecycle, attempt counter, and stored
-  provenance (provider, model, prompt version, raw response), so a provider
-  outage degrades one field rather than failing the booking.
-- **`calendar_events`** — one row per (appointment, participant) with its own
-  sync status, so a failed Google call is retryable without losing the remote
-  event id.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | — | PostgreSQL connection string |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | — | Token signing (16+ chars) |
+| `TOKEN_ENCRYPTION_KEY` | — | AES-256-GCM key for OAuth tokens (64 hex chars) |
+| `SLOT_HOLD_TTL_SECONDS` | `600` | How long a held slot is reserved |
+| `APPOINTMENT_REMINDER_LEAD_MINUTES` | `1440` | Reminder lead time |
+| `LLM_PROVIDER` | `gemini` | `gemini` / `groq` / `openrouter` / `mock` |
+| `MAIL_TRANSPORT` | `console` | `console` logs instead of sending |
+| `GOOGLE_CALENDAR_ENABLED` | `false` | Calendar stays off until configured |
+| `WORKER_ENABLED` | `true` | Run background jobs in-process |
 
-### Verifying the concurrency guarantee
-
-```bash
-cd server && npm run verify:slots
-```
-
-Fires 12 simultaneous inserts at one slot and asserts exactly one commits, then
-12 more at an *overlapping* range to show the EXCLUDE constraint catches what the
-unique index alone cannot, then confirms a cancelled slot becomes rebookable.
-
-Current result:
-
-```
-Test 1: 12 concurrent bookings for the SAME slot
-  committed: 1   rejected as slot conflict: 11        PASS
-Test 2: 12 concurrent bookings OVERLAPPING that slot
-  committed: 0   rejected as slot conflict: 12        PASS
-Test 3: cancelling frees the slot for rebooking       PASS
-```
+Config is validated with Zod at boot — a missing or malformed value fails fast
+with a readable message rather than at the first request that needs it.
 
 ---
 
-## API — implemented so far
+## How it works
 
-### Clinics (`/api/clinics`)
+**Booking is two-phase**, because the brief requires a symptom form *before*
+confirmation and that form takes minutes:
 
-| Method | Path | Who | Purpose |
-|---|---|---|---|
-| POST | `/register` | — | Self-service clinic signup (clinic + first admin) |
-| GET | `/` | — | Public clinic directory |
-| GET | `/me` | clinic admin | Own clinic profile + doctor count |
-| PATCH | `/me` | clinic admin | Update clinic details |
+```
+POST /appointments/hold          → HELD row written immediately (10-min TTL)
+      patient fills symptom form
+POST /appointments/:id/confirm   → CONFIRMED + symptoms + emails + calendar
+```
 
-### Auth (`/api/auth`)
+Writing the `HELD` row up front means the slot occupies the database's unique
+index from the first click, so a second patient is rejected at *hold* time rather
+than after filling in the whole form.
 
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| POST | `/register` | — | Patient self-registration (role is not accepted from the client) |
-| POST | `/login` | — | Returns access + refresh tokens |
-| POST | `/refresh` | — | Rotates the refresh token |
-| POST | `/logout` | — | Revokes one refresh token |
-| POST | `/logout-all` | any | Revokes every session |
-| GET | `/me` | any | Profile incl. role-specific part |
-| PATCH | `/me` | any | Update name / phone / timezone |
-| POST | `/change-password` | any | Revokes all sessions on success |
+**Availability is computed, never stored.** A slot exists only if it survives four
+filters: inside an active working block, not overlapping leave, not overlapping a
+`HELD`/`CONFIRMED` appointment, and within the notice/advance window.
 
-### Doctor management (`/api/admin`) — CLINIC_ADMIN or ADMIN
+**Nothing is sent inline.** Emails and calendar changes are written to a
+transactional outbox in the same transaction as the business change, then drained
+by workers with backoff and a dead-letter queue.
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/doctors` | Create doctor (user + profile + working hours, one transaction) |
-| GET | `/doctors` | List, filter by specialisation / free text / active, paginated |
-| GET | `/doctors/:id` | Detail |
-| PATCH | `/doctors/:id` | Update profile or scheduling config |
-| DELETE | `/doctors/:id` | Deactivate (soft — appointments reference the row) |
-| PUT | `/doctors/:id/working-hours` | Replace the weekly schedule |
-| POST | `/doctors/:id/leaves/preview` | **Dry run** — what a leave would cancel, writes nothing |
-| POST | `/doctors/:id/leaves` | Create leave + cascade |
-| GET | `/doctors/:id/leaves` | List, optional `from`/`to` |
-| DELETE | `/doctors/:id/leaves/:leaveId` | Remove a leave |
+**LLM output degrades, never blocks.** Summaries generate asynchronously into rows
+with a `PENDING → READY/FAILED` lifecycle. A provider outage costs one field.
 
-### Appointments (`/api/appointments`) — signed in
-
-| Method | Path | Who | Purpose |
-|---|---|---|---|
-| POST | `/hold` | patient | **Step 1** — reserve a slot with a TTL |
-| POST | `/:id/confirm` | patient | **Step 2** — submit symptom form, confirm |
-| DELETE | `/:id/hold` | patient | Give up a hold early |
-| GET | `/` | any | List, scoped to caller's role |
-| GET | `/:id` | participants | Detail (pre-visit summary is doctor/admin only) |
-| POST | `/:id/cancel` | participants | Cancel + notify both sides |
-| POST | `/:id/reschedule` | participants | Move to a new slot |
-| POST | `/expire-holds` | admin | Manually trigger the sweeper |
-
-### Clinical summaries (`/api/appointments/:id`) — signed in
-
-| Method | Path | Who | Purpose |
-|---|---|---|---|
-| GET | `/pre-visit-summary` | doctor, admin | Triage summary + raw symptom text |
-| GET | `/post-visit-summary` | participants | Plain-language summary for the patient |
-| POST | `/visit-note` | attending doctor | Notes + prescription → schedules reminders |
-| POST | `/pre-visit-summary/regenerate` | doctor, admin | Manual retry after a failure |
-| POST | `/post-visit-summary/regenerate` | doctor, admin | Manual retry after a failure |
-
-The pre-visit summary is **never** returned to patients — an "urgency: HIGH"
-label with no clinician to interpret it does harm rather than good.
-
-### Doctor directory (`/api/doctors`) — any signed-in user
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/specialisations` | Distinct list with doctor counts |
-| GET | `/` | Search by specialisation or free text |
-| GET | `/:id` | Public profile + upcoming leave days |
-| GET | `/:id/availability` | Computed slots for a date or range |
-
-Inactive doctors are invisible here, and licence numbers and doctor email
-addresses are never exposed to patients.
+Full reasoning in [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
 ---
 
 ## Multi-tenancy
 
-Clinics register themselves, then add and manage their own doctors.
+Clinics register themselves at `/register-clinic`, then add and manage their own
+doctors.
 
 | Role | Scope |
 |---|---|
-| `CLINIC_ADMIN` | One clinic. Sees and edits only its own doctors. |
-| `ADMIN` | Platform-wide. Sees every clinic. |
-| `PATIENT` | Searches doctors across **all** clinics; can filter by clinic. |
+| `CLINIC_ADMIN` | One clinic — sees and edits only its own doctors |
+| `ADMIN` | Platform-wide |
+| `PATIENT` | Searches doctors across **all** clinics |
 
-The tenancy scope comes from the **verified JWT**, never the request body, so a
-clinic cannot widen its own reach by sending a different id. Cross-tenant access
-returns **404, not 403** — a 403 would confirm the id exists and let one clinic
-enumerate another's staff.
-
-`POST /api/clinics/register` hardcodes the role to `CLINIC_ADMIN`; a `role` field
-in the body is ignored, so the endpoint cannot mint a platform admin.
-
-```bash
-cd server && npm run verify:clinics   # 33 checks
-```
-
-Fifteen of those checks are cross-tenant attacks — reading, editing, rewriting
-schedules, deactivating and marking leave on another clinic's doctor — all of
-which must 404, with the target verified afterwards to be untouched.
-
----
-
-## Security notes
-
-- **Refresh tokens rotate.** Only a SHA-256 hash is stored. Redeeming one
-  revokes it and issues a new pair; presenting an already-redeemed token is
-  treated as theft and revokes *every* session for that user.
-- **Registration cannot escalate.** `role` is absent from the register schema —
-  doctors and admins are only ever provisioned by an admin.
-- **Login is timing-safe** against user enumeration: a bcrypt comparison runs
-  against a dummy hash when the email is unknown.
-- Credential endpoints have their own rate limiter (10 failed attempts / 15 min)
-  separate from the global API limit.
-
----
-
-## How booking works
-
-Booking is deliberately **two-phase**, because the spec requires a symptom form
-*before* confirmation — and a patient filling in a form is a multi-minute window
-in which somebody else can take the slot.
-
-```
-POST /appointments/hold      -> HELD row written immediately (TTL 10 min)
-      patient fills symptom form
-POST /appointments/:id/confirm -> HELD -> CONFIRMED, symptoms + summary + emails
-```
-
-Writing the `HELD` row up front means the slot occupies the partial unique index
-from the first click, so the second patient is rejected at *hold* time rather
-than after they have filled in the whole form.
-
-**Availability is computed, never stored.** A materialised slot table would need
-regenerating whenever a doctor edits their hours and would drift the moment that
-job failed. A slot exists iff it survives four filters: inside an active working
-block, not overlapping leave, not overlapping a `HELD`/`CONFIRMED` appointment,
-and within the notice/advance window.
-
-**Lapsed holds are reaped inline, not only by the sweeper.** `holdSlot` clears
-expired holds for the exact slot it is about to write, so an abandoned hold never
-blocks a booking even if the background sweeper is down. The sweeper is hygiene,
-not correctness.
-
-**Reschedule is cancel-old + create-new in one transaction**, not an `UPDATE` of
-`slotStart`. If the target slot is taken, the constraint violation rolls
-everything back and the original booking survives — rather than being destroyed
-by a move that then failed.
-
----
-
-## LLM integration
-
-Two versioned prompts, both keeping the task wording from the brief and adding a
-strict output contract, explicit scope limits, and an instruction to work only
-from supplied text.
-
-| Prompt | Audience | Output |
-|---|---|---|
-| `previsit-v1` | doctor | urgency (LOW/MEDIUM/HIGH), chief complaint, 3 questions |
-| `postvisit-v1` | patient | plain-language summary, medication schedule, follow-up, warning signs |
-
-Real output from `gemini-3.6-flash`, for symptoms *"crushing chest pain
-radiating to my left arm… sweating and shortness of breath"*:
-
-> **urgency:** HIGH — *"acute onset of severe (9/10) crushing chest pain
-> radiating to the left arm… associated with diaphoresis and dyspnea, on a
-> background of hypertension."*
-
-And post-visit, turning `"dysuria… +ve nitrites"` into *"painful urination… a
-urine test showed signs of a lower urinary tract infection"*, with
-`TWICE_DAILY` rendered as `["morning","night"]`.
-
-### Why generation is asynchronous
-
-Measured latency on the free tier: **4–14 seconds** typically, and **129
-seconds** once on an overloaded model alias. No user-facing request waits on
-that. Confirming a booking writes a `PENDING` summary row and returns
-immediately; a background worker fills it in.
-
-### Failure handling
-
-| Failure | Response |
-|---|---|
-| Provider hangs | `AbortController` timeout at `LLM_TIMEOUT_MS` |
-| 429 / 5xx / network | Retried with exponential backoff + jitter |
-| 400 / 401 / 404 / safety block | Fails immediately — retrying burns quota |
-| Non-JSON or wrong shape | Retried (usually a sampling artefact), then parked |
-| Retries exhausted | Row parked `FAILED` with `lastError`; nothing else affected |
-
-Provenance — provider, model, prompt version, token count, latency, raw
-response — is stored on every summary, so a bad result can be traced to a bad
-model or a bad prompt.
-
-**Nothing in the booking path depends on the LLM succeeding.** Proven under a
-deliberately invalid API key: booking, confirmation, visit notes, medication
-reminders and appointment completion all still work, and the doctor still sees
-the raw symptom text.
+The tenancy scope comes from the verified JWT, never the request body. Cross-tenant
+access returns **404, not 403**, so one clinic cannot enumerate another's staff.
 
 ---
 
@@ -343,76 +157,16 @@ cd server && npm run verify:all
 
 | Suite | Checks | Covers |
 |---|---|---|
-| `verify:slots` | 3 | DB-level concurrency guards |
+| `verify:slots` | 3 | Database-level concurrency guards |
 | `verify:leave` | 14 | Leave conflict cascade |
 | `verify:booking` | 53 | Full booking lifecycle over HTTP |
 | `verify:holds` | 11 | Hold TTL, inline reaping, sweeper |
-| `verify:summaries` | 29 | Full clinical lifecycle against the live LLM |
-| `verify:degradation` | 19 | Everything still works with the provider broken |
+| `verify:summaries` | 29 | Clinical lifecycle against the live LLM |
+| `verify:notifications` | 32 | Outbox delivery, retry, dead letters, concurrency |
+| `verify:degradation` | 19 | Everything still works with the LLM broken |
+| `verify:clinics` | 33 | Multi-tenant isolation |
 | `smoke:part2` | 48 | Auth + admin API |
 
-**177 checks, all passing.** The booking suite fires 8 simultaneous hold
-requests at one slot through the real HTTP API and asserts exactly one returns
-201 while the other seven get `409 SLOT_UNAVAILABLE`. The degradation suite runs
-the same flows with a deliberately invalid API key.
-
----
-
-## Google Calendar setup
-
-Calendar sync stays **disabled** until configured, and every code path treats an
-unconnected user as a no-op rather than an error — so the app runs fully without
-it.
-
-1. <https://console.cloud.google.com> → create a project
-2. **APIs & Services → Library** → enable **Google Calendar API**
-3. **OAuth consent screen** → External → add your Google account under **Test users**
-   (an unverified app only works for listed testers)
-4. **Credentials → Create OAuth client ID → Web application**
-   - Authorised redirect URI: `http://localhost:4000/api/calendar/google/callback`
-5. Put the values in `server/.env`:
-
-```
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_CALENDAR_ENABLED=true
-```
-
-### Endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/calendar/status` | Whether the server and this user are connected |
-| GET | `/api/calendar/google/connect` | Returns the consent URL |
-| GET | `/api/calendar/google/callback` | Google redirects here; then back to the client |
-| DELETE | `/api/calendar/google` | Revoke at Google and delete locally |
-| POST | `/api/calendar/sync` | Run a sync pass now |
-
-### Design
-
-Sync is **reconciling, not event-driven**. Each `calendar_events` row records
-what Google currently holds; the appointment records what it *should* hold. The
-job converges one to the other, so cancellation and rescheduling need no
-dedicated calendar hooks — the desired state changes and the next pass follows.
-A missed pass self-heals rather than losing an event forever.
-
-Refresh tokens are encrypted at rest with **AES-256-GCM** (`TOKEN_ENCRYPTION_KEY`),
-so a database leak does not hand over calendar access. Tokens Google silently
-rotates are re-encrypted and persisted. Connecting later **backfills** events
-queued while the user was disconnected.
-
----
-
-## Roadmap
-
-| Part | Scope | Status |
-|---|---|---|
-| 1 | Scaffold, DB schema, migrations, seed, config | done — verified |
-| 2 | Auth (JWT + RBAC), admin doctor management | done — verified |
-| 3 | Slot generation, holds, race-safe booking | done — verified |
-| 4 | LLM adapter, pre/post-visit summaries, degradation | done — verified |
-| 5 | Notification outbox, email worker, medication reminders | done |
-| 6 | Google Calendar OAuth + event sync | done |
-| 7 | React frontend (three portals) | pending |
-| 8 | API docs, system design write-up, deployment | pending |
-"# Unthinkable_Health_Appointment_Manager" 
+Highlights: eight simultaneous hold requests at one slot through real HTTP
+(exactly one wins), four concurrent outbox workers dividing a queue without
+double-sending, and fifteen cross-tenant attacks that must all 404.
