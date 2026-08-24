@@ -90,16 +90,6 @@ async function main() {
   const queued = await enqueueMany(null, rows);
   check('6 notifications queued', queued === 6, `queued ${queued}`);
 
-  const dbg = await prisma.notificationOutbox.findMany({
-    where: { dedupeKey: { startsWith: `${TAG}:happy:` } },
-    select: { status: true, nextAttemptAt: true },
-  });
-  console.log('    DEBUG rows=%d status=%s nextAttemptAt=%s jsNow=%s',
-    dbg.length,
-    [...new Set(dbg.map((r) => r.status))].join(','),
-    dbg[0]?.nextAttemptAt?.toISOString(),
-    new Date().toISOString());
-
   const result = await runOutboxPass({ batchSize: 10 });
   check('pass claims and sends them', result.sent >= 6, JSON.stringify(result));
 

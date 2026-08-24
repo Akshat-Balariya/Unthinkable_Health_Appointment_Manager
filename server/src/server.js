@@ -6,6 +6,7 @@ import { startHoldSweeper } from './jobs/holdSweeper.js';
 import { startSummaryWorker } from './jobs/summaryJob.js';
 import { startOutboxWorker } from './jobs/outboxWorker.js';
 import { startReminderWorker } from './jobs/reminderJob.js';
+import { startCalendarWorker } from './jobs/calendarJob.js';
 
 const log = logger.child('server');
 
@@ -38,6 +39,7 @@ async function start() {
           batchSize: env.WORKER_BATCH_SIZE,
         }),
         startReminderWorker({ intervalMs: 60_000 }),
+        startCalendarWorker({ intervalMs: 30_000 }),
       ]
     : [];
 

@@ -19,7 +19,19 @@ export async function audit(
   }
 }
 
-/** Pulls the caller's identity and IP off an Express request. */
+/**
+ * Request context threaded into every service call: who is acting, from where,
+ * and which clinic they are confined to.
+ *
+ * `clinicId` is the tenancy scope. It is populated ONLY for CLINIC_ADMIN, so a
+ * platform ADMIN gets null and is deliberately unscoped. Taking it from the
+ * verified token rather than the request body is what makes the scoping
+ * trustworthy - a clinic cannot widen its own reach by sending a different id.
+ */
 export function auditContext(req) {
-  return { actorUserId: req.user?.id ?? null, ipAddress: req.ip ?? null };
+  return {
+    actorUserId: req.user?.id ?? null,
+    ipAddress: req.ip ?? null,
+    clinicId: req.user?.role === 'CLINIC_ADMIN' ? (req.user.clinicId ?? null) : null,
+  };
 }

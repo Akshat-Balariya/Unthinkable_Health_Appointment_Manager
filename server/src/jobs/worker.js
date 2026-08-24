@@ -20,6 +20,7 @@ import { startOutboxWorker } from './outboxWorker.js';
 import { startReminderWorker } from './reminderJob.js';
 import { startSummaryWorker } from './summaryJob.js';
 import { startHoldSweeper } from './holdSweeper.js';
+import { startCalendarWorker } from './calendarJob.js';
 
 const log = logger.child('worker');
 
@@ -40,6 +41,7 @@ async function main() {
     startReminderWorker({ intervalMs: 60_000 }),
     startSummaryWorker({ intervalMs: env.WORKER_POLL_INTERVAL_MS }),
     startHoldSweeper({ intervalMs: 60_000 }),
+    startCalendarWorker({ intervalMs: 30_000 }),
   ];
 
   log.info('worker running', {

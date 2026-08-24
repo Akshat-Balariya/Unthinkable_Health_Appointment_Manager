@@ -33,7 +33,8 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
       fullName: true,
       isActive: true,
       timezone: true,
-      doctorProfile: { select: { id: true, isActive: true } },
+      clinicId: true,
+      doctorProfile: { select: { id: true, isActive: true, clinicId: true } },
       patientProfile: { select: { id: true } },
     },
   });
@@ -49,6 +50,8 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     timezone: user.timezone,
     doctorId: user.doctorProfile?.id ?? null,
     patientId: user.patientProfile?.id ?? null,
+    // Set for CLINIC_ADMIN; null for platform ADMIN, which means "no scope".
+    clinicId: user.clinicId ?? user.doctorProfile?.clinicId ?? null,
   };
 
   next();

@@ -15,6 +15,8 @@ import adminNotificationRoutes from './modules/admin/notifications.routes.js';
 import doctorDirectoryRoutes from './modules/doctors/directory.routes.js';
 import appointmentRoutes from './modules/appointments/appointments.routes.js';
 import summaryRoutes from './modules/summaries/summaries.routes.js';
+import calendarRoutes from './modules/calendar/calendar.routes.js';
+import clinicRoutes from './modules/clinics/clinics.routes.js';
 
 export function createApp() {
   const app = express();
@@ -86,12 +88,13 @@ export function createApp() {
 
   // --- feature routers -----------------------------------------------------
   app.use('/api/auth', authRoutes);
-  app.use('/api/admin', adminNotificationRoutes);
+  app.use('/api/admin/notifications', adminNotificationRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/doctors', doctorDirectoryRoutes);
   app.use('/api/appointments', appointmentRoutes);
   app.use('/api/appointments', summaryRoutes);
-  // Calendar (Part 6) mounts here.
+  app.use('/api/calendar', calendarRoutes);
+  app.use('/api/clinics', clinicRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

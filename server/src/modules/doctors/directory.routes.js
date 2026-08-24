@@ -21,6 +21,7 @@ const router = Router();
 
 const searchQuery = z.object({
   specialisation: z.string().trim().max(120).optional(),
+  clinicId: z.string().uuid().optional(),
   q: z.string().trim().max(120).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
@@ -30,6 +31,7 @@ function shapePublic(d) {
   return {
     id: d.id,
     fullName: d.user.fullName,
+    clinic: d.clinic ? { id: d.clinic.id, name: d.clinic.name, city: d.clinic.city } : null,
     specialisation: d.specialisation,
     qualifications: d.qualifications,
     bio: d.bio,
@@ -65,11 +67,12 @@ router.get(
   requireAuth,
   validate({ query: searchQuery }),
   asyncHandler(async (req, res) => {
-    const { specialisation, q, page, limit } = req.validatedQuery;
+    const { specialisation, clinicId, q, page, limit } = req.validatedQuery;
 
     const where = {
       isActive: true,
       user: { isActive: true },
+      ...(clinicId ? { clinicId } : {}),
       ...(specialisation
         ? { specialisation: { equals: specialisation, mode: 'insensitive' } }
         : {}),
@@ -90,6 +93,7 @@ router.get(
         where,
         include: {
           user: { select: { fullName: true } },
+          clinic: { select: { id: true, name: true, city: true } },
           workingHours: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
         },
         orderBy: { specialisation: 'asc' },
@@ -115,6 +119,7 @@ router.get(
       where: { id: req.params.id, isActive: true, user: { isActive: true } },
       include: {
         user: { select: { fullName: true } },
+        clinic: { select: { id: true, name: true, city: true } },
         workingHours: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
       },
     });

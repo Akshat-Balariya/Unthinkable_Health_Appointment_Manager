@@ -8,6 +8,19 @@ import { logger } from '../../lib/logger.js';
 
 const log = logger.child('admin.doctors');
 
+/**
+ * Tenancy guard.
+ *
+ * `ctx.clinicId` is set for CLINIC_ADMIN callers and null for platform ADMINs.
+ * A doctor outside the caller's clinic raises NotFoundError rather than
+ * ForbiddenError deliberately: a 403 would confirm the id exists, letting one
+ * clinic enumerate another's staff.
+ */
+function assertScope(doctor, ctx) {
+  if (ctx?.clinicId && doctor.clinicId !== ctx.clinicId) throw new NotFoundError('Doctor');
+  return doctor;
+}
+
 const doctorInclude = {
   user: {
     select: { id: true, email: true, fullName: true, phone: true, isActive: true, timezone: true },
@@ -69,6 +82,9 @@ export async function createDoctor(input, ctx = {}) {
     return tx.doctorProfile.create({
       data: {
         userId: user.id,
+        // Scoped callers may only create within their own clinic; a platform
+        // admin may target one explicitly.
+        clinicId: ctx.clinicId ?? input.clinicId ?? null,
         specialisation: input.specialisation,
         qualifications: input.qualifications,
         bio: input.bio,
@@ -104,8 +120,9 @@ export async function createDoctor(input, ctx = {}) {
   return shapeDoctor(doctor);
 }
 
-export async function listDoctors({ specialisation, q, isActive, page, limit }) {
+export async function listDoctors({ specialisation, q, isActive, page, limit, clinicId }) {
   const where = {
+    ...(clinicId ? { clinicId } : {}),
     ...(specialisation ? { specialisation: { equals: specialisation, mode: 'insensitive' } } : {}),
     ...(isActive !== undefined ? { isActive } : {}),
     ...(q
@@ -136,9 +153,10 @@ export async function listDoctors({ specialisation, q, isActive, page, limit }) 
   };
 }
 
-export async function getDoctor(id) {
+export async function getDoctor(id, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id }, include: doctorInclude });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
   return shapeDoctor(doctor);
 }
 
@@ -146,6 +164,7 @@ export async function getDoctor(id) {
 export async function updateDoctor(id, patch, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id } });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   const userFields = {};
   if (patch.fullName !== undefined) userFields.fullName = patch.fullName;
@@ -199,6 +218,7 @@ export async function updateDoctor(id, patch, ctx = {}) {
 export async function deactivateDoctor(id, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id } });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   const upcoming = await prisma.appointment.count({
     where: { doctorId: id, status: { in: ['HELD', 'CONFIRMED'] }, slotStart: { gte: new Date() } },
@@ -224,6 +244,7 @@ export async function deactivateDoctor(id, ctx = {}) {
 export async function replaceWorkingHours(id, workingHours, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id } });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   const updated = await prisma.$transaction(async (tx) => {
     await tx.doctorWorkingHour.deleteMany({ where: { doctorId: id } });
@@ -280,9 +301,10 @@ export async function findConflictingAppointments(doctorId, range, client = pris
  * Previews what marking this leave would cancel, without writing anything.
  * The admin UI calls this first, so leave is never a surprise bulk cancellation.
  */
-export async function previewLeaveConflicts(doctorId, leaveInput) {
+export async function previewLeaveConflicts(doctorId, leaveInput, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id: doctorId } });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   const range = leaveRangeUtc(leaveInput);
   const conflicts = await findConflictingAppointments(doctorId, range);
@@ -301,9 +323,10 @@ export async function previewLeaveConflicts(doctorId, leaveInput) {
   };
 }
 
-export async function listLeaves(doctorId, { from, to } = {}) {
+export async function listLeaves(doctorId, { from, to } = {}, ctx = {}) {
   const doctor = await prisma.doctorProfile.findUnique({ where: { id: doctorId } });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   return prisma.doctorLeave.findMany({
     where: {
@@ -321,6 +344,10 @@ export async function listLeaves(doctorId, { from, to } = {}) {
  * already told, and those slots may since have been taken by someone else.
  */
 export async function deleteLeave(doctorId, leaveId, ctx = {}) {
+  const doctor = await prisma.doctorProfile.findUnique({ where: { id: doctorId } });
+  if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
+
   const leave = await prisma.doctorLeave.findFirst({ where: { id: leaveId, doctorId } });
   if (!leave) throw new NotFoundError('Leave');
 
@@ -357,6 +384,7 @@ export async function createLeave(doctorId, input, ctx = {}) {
     include: { user: { select: { id: true, email: true, fullName: true } } },
   });
   if (!doctor) throw new NotFoundError('Doctor');
+  assertScope(doctor, ctx);
 
   const range = leaveRangeUtc(input);
 

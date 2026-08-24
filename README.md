@@ -4,7 +4,7 @@ Appointment platform for a clinic with three portals (patient / doctor / admin),
 AI-generated pre-visit and post-visit summaries, email notifications, and Google
 Calendar sync.
 
-> **Build status — Parts 1–4 of 8 complete, verified against a live database and a live LLM.**
+> **Build status — Parts 1–6 of 8 complete.** Backend feature-complete; frontend (Part 7) and docs/deploy (Part 8) remain.
 > Foundation: database schema, migrations, seed data, config, error handling,
 > health endpoints. Remaining parts listed under [Roadmap](#roadmap).
 
@@ -321,6 +321,51 @@ the same flows with a deliberately invalid API key.
 
 ---
 
+## Google Calendar setup
+
+Calendar sync stays **disabled** until configured, and every code path treats an
+unconnected user as a no-op rather than an error — so the app runs fully without
+it.
+
+1. <https://console.cloud.google.com> → create a project
+2. **APIs & Services → Library** → enable **Google Calendar API**
+3. **OAuth consent screen** → External → add your Google account under **Test users**
+   (an unverified app only works for listed testers)
+4. **Credentials → Create OAuth client ID → Web application**
+   - Authorised redirect URI: `http://localhost:4000/api/calendar/google/callback`
+5. Put the values in `server/.env`:
+
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_CALENDAR_ENABLED=true
+```
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/calendar/status` | Whether the server and this user are connected |
+| GET | `/api/calendar/google/connect` | Returns the consent URL |
+| GET | `/api/calendar/google/callback` | Google redirects here; then back to the client |
+| DELETE | `/api/calendar/google` | Revoke at Google and delete locally |
+| POST | `/api/calendar/sync` | Run a sync pass now |
+
+### Design
+
+Sync is **reconciling, not event-driven**. Each `calendar_events` row records
+what Google currently holds; the appointment records what it *should* hold. The
+job converges one to the other, so cancellation and rescheduling need no
+dedicated calendar hooks — the desired state changes and the next pass follows.
+A missed pass self-heals rather than losing an event forever.
+
+Refresh tokens are encrypted at rest with **AES-256-GCM** (`TOKEN_ENCRYPTION_KEY`),
+so a database leak does not hand over calendar access. Tokens Google silently
+rotates are re-encrypted and persisted. Connecting later **backfills** events
+queued while the user was disconnected.
+
+---
+
 ## Roadmap
 
 | Part | Scope | Status |
@@ -329,8 +374,8 @@ the same flows with a deliberately invalid API key.
 | 2 | Auth (JWT + RBAC), admin doctor management | done — verified |
 | 3 | Slot generation, holds, race-safe booking | done — verified |
 | 4 | LLM adapter, pre/post-visit summaries, degradation | done — verified |
-| 5 | Notification outbox, email worker, medication reminders | pending |
-| 6 | Google Calendar OAuth + event sync | pending |
+| 5 | Notification outbox, email worker, medication reminders | done |
+| 6 | Google Calendar OAuth + event sync | done |
 | 7 | React frontend (three portals) | pending |
 | 8 | API docs, system design write-up, deployment | pending |
 "# Unthinkable_Health_Appointment_Manager" 

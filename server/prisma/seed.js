@@ -101,6 +101,32 @@ async function upsertUser({ email, fullName, role, phone }) {
 async function main() {
   console.log('Seeding database...');
 
+  // --- demo clinic ---------------------------------------------------------
+  // Seeded doctors belong to it, so the multi-tenant scoping has something
+  // real to scope against out of the box.
+  const clinic = await prisma.clinic.upsert({
+    where: { slug: 'sunrise-family-clinic' },
+    update: {},
+    create: {
+      name: 'Sunrise Family Clinic',
+      slug: 'sunrise-family-clinic',
+      email: 'contact@sunrise.test',
+      phone: '+91-98000-11111',
+      addressLine: '14 MG Road',
+      city: 'Bengaluru',
+    },
+  });
+  console.log(`  clinic   ${clinic.name}`);
+
+  const clinicAdmin = await upsertUser({
+    email: 'clinic@sunrise.test',
+    fullName: 'Sunrise Clinic Admin',
+    role: 'CLINIC_ADMIN',
+    phone: '+91-98000-11112',
+  });
+  await prisma.user.update({ where: { id: clinicAdmin.id }, data: { clinicId: clinic.id } });
+  console.log(`  clinic admin  ${clinicAdmin.email}`);
+
   // --- admin ---------------------------------------------------------------
   const admin = await upsertUser({
     email: 'admin@clinic.test',
@@ -122,6 +148,7 @@ async function main() {
     const doctor = await prisma.doctorProfile.upsert({
       where: { userId: user.id },
       update: {
+        clinicId: clinic.id,
         specialisation: d.specialisation,
         qualifications: d.qualifications,
         slotDurationMin: d.slotDurationMin,
@@ -130,6 +157,7 @@ async function main() {
       },
       create: {
         userId: user.id,
+        clinicId: clinic.id,
         specialisation: d.specialisation,
         qualifications: d.qualifications,
         slotDurationMin: d.slotDurationMin,

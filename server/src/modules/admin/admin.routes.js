@@ -18,8 +18,14 @@ import {
 
 const router = Router();
 
-// Everything below this line is admin-only.
-router.use(requireAuth, requireRole('ADMIN'));
+/** Restricts a listing to the caller's clinic; platform admins stay unscoped. */
+const scopeOf = (req) =>
+  req.user.role === 'CLINIC_ADMIN' ? { clinicId: req.user.clinicId } : {};
+
+// Doctor management is available to a clinic's own admin and to platform
+// admins. Every handler passes auditContext(req), whose clinicId confines a
+// CLINIC_ADMIN to its own doctors.
+router.use(requireAuth, requireRole('ADMIN', 'CLINIC_ADMIN'));
 
 // --- doctors ---------------------------------------------------------------
 
@@ -37,7 +43,7 @@ router.get(
   '/doctors',
   validate({ query: listDoctorsQuery }),
   asyncHandler(async (req, res) => {
-    res.json(await doctors.listDoctors(req.validatedQuery));
+    res.json(await doctors.listDoctors({ ...req.validatedQuery, ...scopeOf(req) }));
   })
 );
 
@@ -46,7 +52,7 @@ router.get(
   '/doctors/:id',
   validate({ params: idParam }),
   asyncHandler(async (req, res) => {
-    res.json(await doctors.getDoctor(req.params.id));
+    res.json(await doctors.getDoctor(req.params.id, auditContext(req)));
   })
 );
 
@@ -94,7 +100,7 @@ router.post(
   '/doctors/:id/leaves/preview',
   validate({ params: idParam, body: createLeaveSchema }),
   asyncHandler(async (req, res) => {
-    res.json(await doctors.previewLeaveConflicts(req.params.id, req.body));
+    res.json(await doctors.previewLeaveConflicts(req.params.id, req.body, auditContext(req)));
   })
 );
 
@@ -115,7 +121,7 @@ router.get(
     query: z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() }),
   }),
   asyncHandler(async (req, res) => {
-    res.json(await doctors.listLeaves(req.params.id, req.validatedQuery));
+    res.json(await doctors.listLeaves(req.params.id, req.validatedQuery, auditContext(req)));
   })
 );
 

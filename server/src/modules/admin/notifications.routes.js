@@ -10,6 +10,10 @@ import { runReminderPass } from '../../jobs/reminderJob.js';
 import { audit, auditContext } from '../../lib/audit.js';
 
 const router = Router();
+// Platform-admin only. Mounted at its own path (/api/admin/notifications) so
+// this blanket guard cannot reject sibling /api/admin routes that clinic admins
+// are allowed to use - router.use() applies to every request under the mount
+// point, not only to matching routes.
 router.use(requireAuth, requireRole('ADMIN'));
 
 /**
@@ -23,7 +27,7 @@ const OUTBOX_STATUSES = ['PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD', 'CAN
 
 /** GET /api/admin/notifications/stats */
 router.get(
-  '/notifications/stats',
+  '/stats',
   asyncHandler(async (req, res) => {
     const [byStatus, byType, oldestPending, reminders] = await Promise.all([
       prisma.notificationOutbox.groupBy({ by: ['status'], _count: { status: true } }),
@@ -51,7 +55,7 @@ router.get(
 
 /** GET /api/admin/notifications?status=DEAD&type=&page=&limit= */
 router.get(
-  '/notifications',
+  '/',
   validate({
     query: z.object({
       status: z.enum(OUTBOX_STATUSES).optional(),
@@ -101,7 +105,7 @@ router.get(
  * needs fixing first, so automatic retry would just re-fail on a schedule.
  */
 router.post(
-  '/notifications/retry',
+  '/retry',
   validate({
     body: z.object({
       ids: z.array(z.string().uuid()).max(500).optional(),
@@ -123,7 +127,7 @@ router.post(
 
 /** POST /api/admin/notifications/drain - run one pass now instead of waiting */
 router.post(
-  '/notifications/drain',
+  '/drain',
   validate({ body: z.object({ batchSize: z.number().int().min(1).max(100).optional() }) }),
   asyncHandler(async (req, res) => {
     const reminders = await runReminderPass({ batchSize: 100 });

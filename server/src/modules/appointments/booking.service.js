@@ -315,6 +315,17 @@ export async function confirmBooking(appointmentId, user, symptoms, ctx = {}) {
       },
     ]);
 
+    // Queue calendar sync for both participants. Rows are created regardless of
+    // whether either has connected Google - the sync job treats "not connected"
+    // as a no-op, and connecting later backfills them.
+    await tx.calendarEvent.createMany({
+      data: [
+        { appointmentId, userId: appt.patient.user.id },
+        { appointmentId, userId: appt.doctor.user.id },
+      ],
+      skipDuplicates: true,
+    });
+
     return tx.appointment.findUnique({ where: { id: appointmentId }, include: appointmentInclude });
   });
 
@@ -385,6 +396,12 @@ export async function cancelAppointment(appointmentId, user, { reason } = {}, ct
         type: { in: ['APPOINTMENT_REMINDER', 'BOOKING_CONFIRMATION'] },
       },
       data: { status: 'CANCELLED' },
+    });
+
+    // Desired state is now ABSENT; re-queue so the sync job deletes the events.
+    await tx.calendarEvent.updateMany({
+      where: { appointmentId, status: { in: ['SYNCED', 'FAILED'] } },
+      data: { status: 'PENDING', attempts: 0 },
     });
 
     await enqueueMany(tx, [
@@ -513,6 +530,20 @@ export async function rescheduleAppointment(appointmentId, user, { newSlotStart,
           type: { in: ['APPOINTMENT_REMINDER', 'BOOKING_CONFIRMATION'] },
         },
         data: { status: 'CANCELLED' },
+      });
+
+      // Old appointment is CANCELLED so its events must go; the new one needs
+      // its own pair.
+      await tx.calendarEvent.updateMany({
+        where: { appointmentId, status: { in: ['SYNCED', 'FAILED'] } },
+        data: { status: 'PENDING', attempts: 0 },
+      });
+      await tx.calendarEvent.createMany({
+        data: [
+          { appointmentId: next.id, userId: appt.patient.user.id },
+          { appointmentId: next.id, userId: appt.doctor.user.id },
+        ],
+        skipDuplicates: true,
       });
 
       await enqueueMany(tx, [

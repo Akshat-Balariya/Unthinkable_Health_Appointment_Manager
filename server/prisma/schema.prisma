@@ -28,7 +28,8 @@ datasource db {
 enum Role {
   PATIENT
   DOCTOR
-  ADMIN
+  CLINIC_ADMIN // manages one clinic and its doctors
+  ADMIN        // platform administrator, sees every clinic
 }
 
 enum AppointmentStatus {
@@ -114,6 +115,34 @@ enum MedicationFrequency {
 }
 
 // ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+// A clinic owns its doctors and is administered by its own CLINIC_ADMIN users.
+// Every doctor-management query is scoped by clinicId, so one clinic can never
+// see or modify another's staff. Patients search across all clinics.
+model Clinic {
+  id          String  @id @default(uuid())
+  name        String
+  slug        String  @unique
+  email       String  @unique
+  phone       String?
+  addressLine String?
+  city        String?
+  timezone    String  @default("Asia/Kolkata")
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admins  User[]
+  doctors DoctorProfile[]
+
+  @@index([isActive])
+  @@map("clinics")
+}
+
+// ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
 
@@ -127,9 +156,13 @@ model User {
   timezone     String    @default("Asia/Kolkata")
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
+
+  // Set for CLINIC_ADMIN users; null for patients, doctors and platform admins.
+  clinicId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  clinic          Clinic?          @relation(fields: [clinicId], references: [id], onDelete: SetNull)
   patientProfile  PatientProfile?
   doctorProfile   DoctorProfile?
   calendarAccount CalendarAccount?
@@ -140,6 +173,7 @@ model User {
   auditLogs      AuditLog[]           @relation("AuditActor")
 
   @@index([role])
+  @@index([clinicId])
   @@map("users")
 }
 
@@ -179,6 +213,7 @@ model PatientProfile {
 model DoctorProfile {
   id              String  @id @default(uuid())
   userId          String  @unique
+  clinicId        String?
   specialisation  String
   qualifications  String?
   bio             String?
@@ -196,6 +231,7 @@ model DoctorProfile {
   updatedAt DateTime @updatedAt
 
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic       Clinic?             @relation(fields: [clinicId], references: [id], onDelete: SetNull)
   workingHours DoctorWorkingHour[]
   leaves       DoctorLeave[]
   appointments Appointment[]
@@ -203,6 +239,7 @@ model DoctorProfile {
 
   @@index([specialisation])
   @@index([isActive])
+  @@index([clinicId])
   @@map("doctor_profiles")
 }
 
